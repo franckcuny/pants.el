@@ -64,6 +64,13 @@
 
 (defvar *pants-compilation-buffer* "*pants-compilation-buffer*")
 
+(define-derived-mode pants-build-mode python-mode "Pants"
+  "Major mode for editing Pants build files."
+  :group 'pants
+
+  (setq-local python-indent-guess-indent-offset nil)
+  (setq-local python-indent-offset 4))
+
 (defun pants--find-directory-containing-build-file (file)
   "Finds the directory containing the build file next to a give file."
   (let ((root nil)
