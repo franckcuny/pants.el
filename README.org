@@ -9,7 +9,7 @@ This library provides an interface to [[http://www.pantsbuild.org/][pants]], a f
 Get a copy of the repository:
 
 #+BEGIN_SRC sh
-    git clone git@github.com:franckcuny/pants.el.git
+    git clone git@github.com:fcuny/pants.el.git
 #+END_SRC
 
 Then update your Emacs configuration:

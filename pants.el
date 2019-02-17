@@ -3,7 +3,7 @@
 ;; Copyright © 2016 Franck Cuny <franck.cuny@gmail.com>
 
 ;; Author: Franck Cuny <franck.cuny@gmail.com>
-;; URL: https://github.com/franckcuny/pants.el
+;; URL: https://github.com/fcuny/pants.el
 
 ;;; Commentary:
 ;;
