@@ -14,6 +14,11 @@
 (require 'compile)
 (require 'python)
 
+(defgroup pants nil
+  "Major mode for editing Pants files."
+  :group 'languages
+  :link '(url-link "https://github.com/fcuny/pants.el"))
+
 (defcustom pants-completion-system 'ido
   "The completion system to be used by pants."
   :group 'pants
