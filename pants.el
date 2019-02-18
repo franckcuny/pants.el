@@ -92,7 +92,7 @@
 
 (defun pants--build-command ()
   "Returns the complete command to run."
-  (format "%s%s %s --config-override=%s%s %s"
+  (format "%s%s %s --pants-config-files=%s%s %s"
           (pants--get-source-tree) pants-exec-name pants-extra-args (pants--get-source-tree) pants-ini pants-exec-args))
 
 (defun pants--python-repl-action (target)
