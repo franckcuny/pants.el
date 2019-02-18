@@ -224,7 +224,7 @@
     (let ((cache-targets (pants--get-path-cached-targets current-build-file)))
       (when (file-newer-than-file-p (format "%sBUILD" (pants--get-build-file-for-current-buffer)) cache-targets)
         (pants--populate-cache-targets cache-targets current-build-file))
-      (read-targets-from-cache cache-targets))))
+      (pants--read-targets-from-cache cache-targets current-build-file))))
 
 (defun pants--replace-build-buffer (buffer new-content)
   (with-current-buffer buffer
