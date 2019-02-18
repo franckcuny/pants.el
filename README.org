@@ -14,19 +14,18 @@ Get a copy of the repository:
 
 Then update your Emacs configuration:
 
-#+BEGIN_EXAMPLE
-    (load-file "~/src/pants.el/pants.el")
-
+#+BEGIN_SRC emacs-lisp
     (use-package pants
+      :load-file "~/workspace/pants.el/pants.el"
       :bind (("C-c b" . pants-find-build-file)
              ("C-c r" . pants-run-binary)
              ("C-c t" . pants-run-test))
-      :config
-      (progn
-        (setq pants-source-tree-root "/Users/fcuny/src/source"
-              pants-bury-compilation-buffer t
-              pants-extra-args "-q")))
-#+END_EXAMPLE
+      :mode (("BUILD\\'" . pants-build-mode))
+      :custom
+      (pants-source-tree-root "/Users/fcuny/workspace/source")
+      (pants-bury-compilation-buffer t)
+      (pants-extra-args "-q"))
+#+END_SRC
 
 ** Configuration
 
@@ -48,6 +47,8 @@ There's a few variables that you can set:
 
 -  *pants-exec-args*: Optional arguments to the pants executable. The default is =--no-color=
 
+-  *pants-build-format-exec*: Path to the `buildifier` executable. Required in order to format BUILD files.
+
 ** Usage
 
 *** Go to the closest BUILD file
@@ -65,3 +66,7 @@ Do =m-x pants-run-test=. It will present a list of targets and let you select wh
 *** Jump to a REPL
 
 Do =m-x pants-run-python-repl=. It will present a list of targets and create a REPL.
+
+*** Format the BUILD file
+
+Do =m-x pants-build-fmt=. It will format the BUILD file using `buildifier`.
