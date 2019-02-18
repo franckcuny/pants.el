@@ -57,12 +57,21 @@
   :group 'pants
   :type 'string)
 
+(defcustom pants-build-format-exec "buildifier"
+  "Path to the executable used to format pants BUILD files."
+  :group 'pants
+  :type 'string)
+
 (defcustom pants-bury-compilation-buffer nil
   "Set this variable to true to bury the compilation buffer if there's no error."
   :group 'pants
   :type 'boolean)
 
 (defvar *pants-compilation-buffer* "*pants-compilation-buffer*")
+
+(defvar *pants-format-errors-buffer* "*pants-format-errors*")
+
+(defvar *pants-format-run-buffer* "*pants-format-run-buffer*")
 
 (define-derived-mode pants-build-mode python-mode "Pants"
   "Major mode for editing Pants build files."
@@ -200,6 +209,13 @@
   (set (make-local-variable 'compilation-process-setup-function)
        'pants--compilation-setup))
 
+(defun pants--replace-build-buffer (buffer new-content)
+  (with-current-buffer buffer
+    (erase-buffer)
+    (save-excursion
+      (insert-file-contents-literally new-content)
+      (save-buffer))))
+
 ;;;###autoload
 (defun pants-find-build-file ()
   "Finds the build file and if it exists, open it."
@@ -229,5 +245,34 @@
   "Runs fmt on a target file to sort the import files (Python only)."
   (interactive)
   (pants--complete-read "Run fmt for: " (pants--get-targets) 'pants--fmt-action))
+
+;;;###autoload
+(defun pants-build-fmt ()
+  "Format the current buffer using buildifier."
+  (interactive)
+  (let ((input (make-temp-file "pants-format-input"))
+        (output (get-buffer-create *pants-format-run-buffer*))
+        (errors (make-temp-file "pants-format-errors")))
+    (unwind-protect
+        (progn
+          (write-region nil nil input nil 'silent-write)
+          (with-current-buffer output (erase-buffer))
+          (let ((status (call-process pants-build-format-exec nil `(,output ,errors) nil "-mode=fix" input)))
+            (if (zerop status)
+                (pants--replace-build-buffer (current-buffer) input)
+              (let ((errors-buffer (get-buffer-create *pants-format-errors-buffer*)))
+                (with-current-buffer errors-buffer
+                  (setq buffer-read-only nil)
+                  (erase-buffer)
+                  (insert-file-contents-literally errors)
+                  (let ((file-name (file-name-nondirectory (buffer-file-name)))
+                        (regexp (rx-to-string `(sequence line-start (group ,input) ":"))))
+                    (while (search-forward-regexp regexp nil t)
+                      (replace-match file-name t t nil 1)))
+                  (compilation-mode))
+                (display-buffer errors-buffer))))))
+    (when input (delete-file input))
+    (when output (kill-buffer output))
+    (when errors (delete-file errors))))
 
 (provide 'pants)
