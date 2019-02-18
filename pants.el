@@ -184,30 +184,47 @@
         build-file
       (user-error "Could not find %s" pants-build-file))))
 
-(defun pants--get-targets ()
-  "Get the targets for the current file."
-  (let ((build-command (format "%s list %s:"
-                               (pants--build-command)
-                               (pants--get-build-file-for-current-buffer)))
-        (default-directory (pants--get-source-tree))
-        targets)
+(defun pants--read-targets-from-cache (cache-targets current-build-file)
+  "Returns a list of targets from the cache."
+  (let (targets)
     (with-temp-buffer
       (let (target)
-        (insert
-         (shell-command-to-string build-command))
+        (insert-file-contents-literally cache-targets)
         (goto-char (point-min))
         (while (re-search-forward "^\\(.+\\)$" nil t)
           (setq target (match-string 1))
           (push target targets))))
-    (push (format "%s::" (string-remove-prefix
-                          (pants--get-source-tree)
-                          (pants--get-build-file-for-current-buffer)))
+    (push (format "%s::"(string-remove-prefix (pants--get-source-tree) current-build-file))
           targets)
     targets))
 
-(define-compilation-mode pants-mode "pants"
-  (set (make-local-variable 'compilation-process-setup-function)
-       'pants--compilation-setup))
+(defun pants--populate-cache-targets (cache-targets current-build-file)
+  "Populates the cache with the targets."
+  (let ((output (get-buffer-create "*pants-list-targets*"))
+        (errors (format "%s%s/%s" (temporary-file-directory) "pants-targets" "errors"))
+        (default-directory (pants--get-source-tree))
+        (build-buffer (current-buffer)))
+    (make-directory (format "%s%s" (temporary-file-directory) "pants-targets") :parents)
+    (let ((status (call-process (format "%s%s" (pants--get-source-tree) pants-exec-name) nil `(,output ,errors) nil "list" current-build-file)))
+      (when (zerop status)
+          (with-current-buffer output
+            (write-file cache-targets)))
+      (switch-to-buffer build-buffer)
+      (when output (kill-buffer output))
+      (when errors (delete-file errors))
+      (pants--read-targets-from-cache cache-targets current-build-file))))
+
+(defun pants--get-path-cached-targets (current-build-file)
+  "Returns the path to the cached targets."
+  (format "%s%s/%s" (temporary-file-directory) "pants-targets" (secure-hash 'md5 current-build-file)))
+
+(defun pants--get-targets ()
+  "Returns the targets for the current file."
+  (let ((current-build-file (pants--get-build-file-for-current-buffer)))
+    (let ((cache-targets (pants--get-path-cached-targets current-build-file)))
+      (when (file-newer-than-file-p (format "%sBUILD" (pants--get-build-file-for-current-buffer)) cache-targets)
+        (pants--populate-cache-targets cache-targets current-build-file))
+      (read-targets-from-cache cache-targets))))
 
 (defun pants--replace-build-buffer (buffer new-content)
   (with-current-buffer buffer
@@ -215,6 +232,10 @@
     (save-excursion
       (insert-file-contents-literally new-content)
       (save-buffer))))
+
+(define-compilation-mode pants-mode "pants"
+  (set (make-local-variable 'compilation-process-setup-function)
+       'pants--compilation-setup))
 
 ;;;###autoload
 (defun pants-find-build-file ()
