@@ -13,6 +13,7 @@
 ;;; Code:
 (require 'compile)
 (require 'python)
+(require 'comint)
 
 (defgroup pants nil
   "Major mode for editing Pants files."
@@ -103,6 +104,48 @@
   "Returns the complete command to run."
   (format "%s%s %s --pants-config-files=%s%s %s"
           (pants--get-source-tree) pants-exec-name pants-extra-args (pants--get-source-tree) pants-ini pants-exec-args))
+
+(defvar pants-scala-repl-mode-map
+  (nconc (make-sparse-keymap) comint-mode-map)
+  "Basic mode map for `pants-scala-repl'")
+
+(defvar pants-scala-repl-prompt-regexp "^\\(?:scala>\\)"
+  "Prompt for `pants-scala-repl'.")
+
+(defun pants-scala-repl--initialize ()
+  "Helper function to initialize pants Scala REPL"
+  (setq comint-process-echoes t)
+  (setq comint-use-prompt-regexp t))
+
+(define-derived-mode pants-scala-repl-mode comint-mode "pants-scala-repl"
+  "Major mode for `pants-scala-repl'.
+
+\\<pants-scala-repl-mode-map>"
+  nil "pants-scala-repl"
+  (setq comint-prompt-regexp pants-scala-repl-prompt-regexp)
+  (setq comint-prompt-read-only t)
+  (set (make-local-variable 'paragraph-separate) "\\'")
+  (set (make-local-variable 'paragraph-start) pants-scala-repl-prompt-regexp))
+
+(add-hook 'pants-scala-repl-mode-hook 'pants-scala-repl--initialize)
+
+(defun pants--scala-repl-action (target)
+  "Start a Scala REPL for TARGET."
+  (let* ((pants-repl-command-elements (split-string (format "%s repl %s" (pants--build-command) target)))
+         (pants-executable (car pants-repl-command-elements))
+         (pants-command-switches (cdr pants-repl-command-elements))
+         (default-directory (pants--get-source-tree))
+         (cmd-name (concat "scala:" target))
+         (buffer (comint-check-proc cmd-name)))
+    (pop-to-buffer-same-window
+     (if (or buffer
+             (not (derived-mode-p 'pants-scala-repl-mode))
+             (comint-check-proc (current-buffer)))
+         (get-buffer-create (or buffer (concat "*" cmd-name "*")))
+       (current-buffer)))
+    (unless buffer
+      (apply 'make-comint-in-buffer cmd-name buffer pants-executable nil pants-command-switches)
+      (pants-scala-repl-mode))))
 
 (defun pants--python-repl-action (target)
   "Starts a Python REPL."
@@ -251,9 +294,15 @@
 
 ;;;###autoload
 (defun pants-run-python-repl ()
-  "Runs a REPL from a target."
+  "Run a Python REPL from a target."
   (interactive)
   (pants--complete-read "Run a REPL for: " (pants--get-targets) 'pants--python-repl-action))
+
+;;;###autoload
+(defun pants-run-scala-repl ()
+  "Run a Scala REPL from a target."
+  (interactive)
+  (pants--complete-read "Run REPL for: " (pants--get-targets) 'pants--scala-repl-action))
 
 ;;;###autoload
 (defun pants-run-test ()
