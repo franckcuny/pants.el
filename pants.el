@@ -13,6 +13,9 @@
 ;;; Code:
 (require 'compile)
 (require 'python)
+(require 'subr-x)
+(eval-when-compile
+  (require 'cl))
 (require 'comint)
 
 (defgroup pants nil
@@ -34,45 +37,35 @@
   :type 'string)
 
 (defcustom pants-ini "pants.ini"
-  "Path to the pants.ini file to use. This variable must be set."
+  "Path to the pants.ini file to use."
   :group 'pants
   :type 'string)
 
 (defcustom pants-exec-name "pants"
-  "Path to the pants executable. This variable must be set."
+  "Path to the pants executable.
+
+Must be set."
   :group 'pants
   :type 'string)
 
 (defcustom pants-extra-args ""
-  "Extra arguments to pass to the pants executable."
+  "Extra arguments to pass to the pants executable.
+
+Must be set."
   :group 'pants
   :type 'string)
 
 (defcustom pants-exec-args "--no-colors"
-  "Arguments to the pants executable. Default is '--no-colors'"
+  "Arguments to the pants executable.
+
+Default is '--no-colors'."
   :group 'pants
   :type 'string)
 
 (defcustom pants-build-file "BUILD"
-  "Name of the build files. Default is 'BUILD'"
+  "Name of the build files.  Default is 'BUILD'."
   :group 'pants
   :type 'string)
-
-(defcustom pants-build-format-exec "buildifier"
-  "Path to the executable used to format pants BUILD files."
-  :group 'pants
-  :type 'string)
-
-(defcustom pants-bury-compilation-buffer nil
-  "Set this variable to true to bury the compilation buffer if there's no error."
-  :group 'pants
-  :type 'boolean)
-
-(defvar *pants-compilation-buffer* "*pants-compilation-buffer*")
-
-(defvar *pants-format-errors-buffer* "*pants-format-errors*")
-
-(defvar *pants-format-run-buffer* "*pants-format-run-buffer*")
 
 (define-derived-mode pants-build-mode python-mode "Pants"
   "Major mode for editing Pants build files."
@@ -81,9 +74,11 @@
   (setq-local python-indent-guess-indent-offset nil)
   (setq-local python-indent-offset 4))
 
-(defun pants--find-directory-containing-build-file (file)
-  "Finds the directory containing the build file next to a give file."
-  (let ((root nil)
+(defun pants--find-directory-containing-build-file (&optional file)
+  "Find the directory containing the build file next to a given FILE."
+  (let ((file (or file (file-name-directory
+                        (buffer-file-name))))
+        (root nil)
         try)
     (while (not (or root
                     (null file)
@@ -97,23 +92,29 @@
     (and root (expand-file-name (file-name-as-directory root)))))
 
 (defun pants--get-source-tree ()
-  "Returns the name of the directory for the source tree, with a trailing slash."
+  "Get the name of the directory for the source tree, with a trailing slash."
   (file-name-as-directory pants-source-tree-root))
 
 (defun pants--build-command ()
-  "Returns the complete command to run."
+  "Return the complete pants command to run."
   (format "%s%s %s --pants-config-files=%s%s %s"
-          (pants--get-source-tree) pants-exec-name pants-extra-args (pants--get-source-tree) pants-ini pants-exec-args))
+          (pants--get-source-tree)
+          pants-exec-name
+          pants-extra-args
+          (pants--get-source-tree)
+          pants-ini
+          pants-exec-args))
+
 
 (defvar pants-scala-repl-mode-map
   (nconc (make-sparse-keymap) comint-mode-map)
-  "Basic mode map for `pants-scala-repl'")
+  "Basic mode map for `pants-scala-repl'.")
 
 (defvar pants-scala-repl-prompt-regexp "^\\(?:scala>\\)"
   "Prompt for `pants-scala-repl'.")
 
 (defun pants-scala-repl--initialize ()
-  "Helper function to initialize pants Scala REPL"
+  "Helper function to initialize pants Scala REPL."
   (setq comint-process-echoes t)
   (setq comint-use-prompt-regexp t))
 
@@ -147,8 +148,9 @@
       (apply 'make-comint-in-buffer cmd-name buffer pants-executable nil pants-command-switches)
       (pants-scala-repl-mode))))
 
+;; FIXME: Add pants-python-repl-options so users can specify -q etc.
 (defun pants--python-repl-action (target)
-  "Starts a Python REPL."
+  "Start a Python REPL for TARGET."
   (let ((pants-repl-command (format "%s repl %s" (pants--build-command) target))
         (default-directory (pants--get-source-tree)))
     (set (make-local-variable 'python-shell-exec-path) '(pants--get-source-tree))
@@ -158,42 +160,42 @@
     (run-python pants-repl-command t)
     (python-shell-switch-to-shell)))
 
+(defun pants--compile (command)
+  "Compile using COMMAND."
+  (set (make-local-variable 'compile-command) command)
+  (compile command))
+
 (defun pants--build-action (target)
-  "Executes the `binary' command"
+  "Execute the `binary' command on TARGET."
   (let ((compile-command (format "%s binary %s" (pants--build-command) target)))
     (pants--compile compile-command)))
 
 (defun pants--test-action (target)
-  "Executes the `test' command"
+  "Execute the `test' command on TARGET."
   (let ((compile-command (format "%s test %s" (pants--build-command) target)))
     (pants--compile compile-command)))
 
-(defun pants--fmt-action (target)
-  "Executes the `fmt' command"
-  (let ((compile-command (format "%s fmt.isort %s" (pants--build-command) target)))
+(defun pants--run-action (target)
+  "Execute the `run' command on TARGET."
+  (let ((compile-command (format "%s run %s" (pants--build-command) target)))
     (pants--compile compile-command)))
 
-(defun pants--compilation-setup ()
-  "Sets the local configuration for the compile buffer"
-  (set (make-local-variable 'compilation-scroll-output) t)
-  (set (make-local-variable 'compilation-disable-input) t)
-  (set (make-local-variable 'compilation-exit-message-function)
-       (lambda (status code msg)
-         (when (and
-                (equal status 'exit)
-                (zerop code)
-                (and pants-bury-compilation-buffer t))
-           (bury-buffer (get-buffer *pants-compilation-buffer*))
-           (replace-buffer-in-windows (get-buffer *pants-compilation-buffer*)))
-         (cons msg code))))
+(defun pants--fmt-action (target)
+  "Execute the `fmt' command on TARGET."
+  (let ((compile-command (format "%s fmt %s" (pants--build-command) target)))
+    (pants--compile compile-command)))
 
-(defun pants--compile (command)
-  "Executes the compilation"
-  (let ((compilation-buffer-name-function (lambda (arg) *pants-compilation-buffer*)))
-    (compilation-start command 'pants-mode)))
+(defun pants--grep-action (target pattern)
+  "Execute `grep' with PATTERN on output of pants filedeps on TARGET."
+  (let* ((filedeps-command (format "%s filedeps %s" (pants--build-command) target))
+         (files (replace-regexp-in-string "\n\r?" " "
+                (replace-regexp-in-string (pants--get-source-tree) ""
+                (replace-regexp-in-string "^WARNING.*?\n" ""
+                (shell-command-to-string filedeps-command))))))
+    (grep (concat "grep  -nH " pattern " " files))))
 
 (defun pants--complete-read (prompt choices action)
-  "Generates a list of existing targets"
+  "Select from a list of target CHOICES using PROMPT selectied using ACTION."
   (let ((default-directory (pants--get-source-tree))
         res)
     (setq res
@@ -215,20 +217,23 @@
                                         :prompt prompt))
               (user-error "Please install helm from https://github.com/emacs-helm/helm")))
            ((eq pants-completion-system 'ido)
-            (ido-completing-read prompt choices))))
+            (string-join (completing-read-multiple prompt choices) " "))))
     (if action
         (funcall action res)
       res)))
 
+
 (defun pants--get-build-file-for-current-buffer ()
-  "Finds the nearest build file for the current buffer"
-  (let ((build-file (pants--find-directory-containing-build-file (file-name-directory (buffer-file-name)))))
+  "Find the nearest build file for the current buffer."
+  (let ((build-file (pants--find-directory-containing-build-file
+                     (file-name-directory
+                      (buffer-file-name)))))
     (if build-file
         build-file
       (user-error "Could not find %s" pants-build-file))))
 
 (defun pants--read-targets-from-cache (cache-targets current-build-file)
-  "Returns a list of targets from the cache."
+  "Return a list of targets for CURRENT-BUILD-FILE from the CACHE-TARGETS."
   (let (targets)
     (with-temp-buffer
       (let (target)
@@ -242,7 +247,7 @@
     targets))
 
 (defun pants--populate-cache-targets (cache-targets current-build-file)
-  "Populates the cache with the targets."
+  "Populate the CACHE-TARGETS with the targets from CURRENT-BUILD-FILE."
   (let ((output (get-buffer-create "*pants-list-targets*"))
         (errors (format "%s%s/%s" (temporary-file-directory) "pants-targets" "errors"))
         (default-directory (pants--get-source-tree))
@@ -258,31 +263,20 @@
       (pants--read-targets-from-cache cache-targets current-build-file))))
 
 (defun pants--get-path-cached-targets (current-build-file)
-  "Returns the path to the cached targets."
+  "Return the path to the cached targets for CURRENT-BUILD-FILE."
   (format "%s%s/%s" (temporary-file-directory) "pants-targets" (secure-hash 'md5 current-build-file)))
 
 (defun pants--get-targets ()
-  "Returns the targets for the current file."
+  "Return the targets for the current file or BUILD-FILE."
   (let ((current-build-file (pants--get-build-file-for-current-buffer)))
     (let ((cache-targets (pants--get-path-cached-targets current-build-file)))
       (when (file-newer-than-file-p (format "%sBUILD" (pants--get-build-file-for-current-buffer)) cache-targets)
         (pants--populate-cache-targets cache-targets current-build-file))
       (pants--read-targets-from-cache cache-targets current-build-file))))
 
-(defun pants--replace-build-buffer (buffer new-content)
-  (with-current-buffer buffer
-    (erase-buffer)
-    (save-excursion
-      (insert-file-contents-literally new-content)
-      (save-buffer))))
-
-(define-compilation-mode pants-mode "pants"
-  (set (make-local-variable 'compilation-process-setup-function)
-       'pants--compilation-setup))
-
 ;;;###autoload
 (defun pants-find-build-file ()
-  "Finds the build file and if it exists, open it."
+  "Find the build file and if it exists, open it."
   (interactive)
   (find-file (concat (pants--get-build-file-for-current-buffer) pants-build-file)))
 
@@ -293,56 +287,42 @@
   (pants--complete-read "Build a binary for: " (pants--get-targets) 'pants--build-action))
 
 ;;;###autoload
+(defun pants-run-target ()
+  "Builds binary for a target."
+  (interactive)
+  (pants--complete-read "Run: " (pants--get-targets) 'pants--run-action))
+
+;;;###autoload
 (defun pants-run-python-repl ()
-  "Run a Python REPL from a target."
+  "Run Python REPL from a target."
   (interactive)
   (pants--complete-read "Run a REPL for: " (pants--get-targets) 'pants--python-repl-action))
 
 ;;;###autoload
 (defun pants-run-scala-repl ()
-  "Run a Scala REPL from a target."
+  "Run Scala REPL from a target."
   (interactive)
   (pants--complete-read "Run REPL for: " (pants--get-targets) 'pants--scala-repl-action))
 
 ;;;###autoload
 (defun pants-run-test ()
-  "Runs the tests from a target."
+  "Run test for a target."
   (interactive)
   (pants--complete-read "Run tests for: " (pants--get-targets) 'pants--test-action))
 
 ;;;###autoload
 (defun pants-run-fmt ()
-  "Runs fmt on a target file to sort the import files (Python only)."
+  "Run fmt on a target."
   (interactive)
   (pants--complete-read "Run fmt for: " (pants--get-targets) 'pants--fmt-action))
 
 ;;;###autoload
-(defun pants-build-fmt ()
-  "Format the current buffer using buildifier."
-  (interactive)
-  (let ((input (make-temp-file "pants-format-input"))
-        (output (get-buffer-create *pants-format-run-buffer*))
-        (errors (make-temp-file "pants-format-errors")))
-    (unwind-protect
-        (progn
-          (write-region nil nil input nil 'silent-write)
-          (with-current-buffer output (erase-buffer))
-          (let ((status (call-process pants-build-format-exec nil `(,output ,errors) nil "-mode=fix" input)))
-            (if (zerop status)
-                (pants--replace-build-buffer (current-buffer) input)
-              (let ((errors-buffer (get-buffer-create *pants-format-errors-buffer*)))
-                (with-current-buffer errors-buffer
-                  (setq buffer-read-only nil)
-                  (erase-buffer)
-                  (insert-file-contents-literally errors)
-                  (let ((file-name (file-name-nondirectory (buffer-file-name)))
-                        (regexp (rx-to-string `(sequence line-start (group ,input) ":"))))
-                    (while (search-forward-regexp regexp nil t)
-                      (replace-match file-name t t nil 1)))
-                  (compilation-mode))
-                (display-buffer errors-buffer))))))
-    (when input (delete-file input))
-    (when output (kill-buffer output))
-    (when errors (delete-file errors))))
+(defun pants-grep (pattern)
+  "Run `find-grep' with PATTERN on file list derived from PANTS."
+  (interactive
+   (list (read-string "Grep for what pattern: " "''")))
+  (pants--complete-read "Run grep for: " (pants--get-src+test-targets)
+                        (lambda (tgt) (pants--grep-action tgt pattern))))
 
 (provide 'pants)
+;;; pants.el ends here
